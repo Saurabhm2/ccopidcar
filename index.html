@@ -879,22 +879,62 @@ function showSC(id){
 // ══════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════
+// ── AUTO-LOGOUT AFTER 5 MINUTES OF INACTIVITY ──
+const AUTO_LOGOUT_MS = 5 * 60 * 1000; // 5 minutes
+let _autoTimer = null;
+let _warnTimer = null;
+
+function resetAutoLogout(){
+  clearTimeout(_autoTimer);
+  clearTimeout(_warnTimer);
+  if(!CU) return;
+  // Warn at 4 min 30 sec
+  _warnTimer = setTimeout(()=>{
+    toast('⚠️ You will be logged out in 30 seconds due to inactivity!','e');
+  }, AUTO_LOGOUT_MS - 30000);
+  // Logout at 5 min
+  _autoTimer = setTimeout(()=>{
+    toast('🔒 Logged out due to inactivity','i');
+    doLogout();
+  }, AUTO_LOGOUT_MS);
+}
+
+// Reset timer on any user activity
+['mousemove','mousedown','keydown','touchstart','scroll','click'].forEach(ev=>{
+  document.addEventListener(ev, ()=>{ if(CU) resetAutoLogout(); }, {passive:true});
+});
+
+function applyLoginUI(u){
+  document.getElementById('sb-av').textContent=u.name[0].toUpperCase();
+  document.getElementById('sb-name').textContent=u.name;
+  document.getElementById('sb-role').textContent=u.role;
+  document.getElementById('tb-role').textContent=u.role==='admin'?'Administrator':'Staff';
+  buildNav();showSC('app');showPG('dash');
+  setFLink();
+  resetAutoLogout();
+}
+
 function doLogin(){
   const email=document.getElementById('l-email').value.trim().toLowerCase();
   const pass=document.getElementById('l-pass').value;
   const u=DB.users.find(x=>x.email===email&&x.pass===pass);
   if(!u){const e=document.getElementById('l-err');e.style.display='block';setTimeout(()=>e.style.display='none',2500);return;}
   CU=u;
-  document.getElementById('sb-av').textContent=u.name[0].toUpperCase();
-  document.getElementById('sb-name').textContent=u.name;
-  document.getElementById('sb-role').textContent=u.role;
-  document.getElementById('tb-role').textContent=u.role==='admin'?'Administrator':'Staff';
+  // Save session so it persists on refresh
+  try{localStorage.setItem('ccop_session', JSON.stringify({email:u.email,ts:Date.now()}));}catch(e){}
   addLog('login',CU.email,`Logged in: ${u.name}`);
-  buildNav();showSC('app');showPG('dash');
-  setFLink();
+  applyLoginUI(u);
 }
+
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.getElementById('s-login').classList.contains('on'))doLogin();});
-function doLogout(){CU=null;showSC('login');}
+
+function doLogout(){
+  CU=null;
+  clearTimeout(_autoTimer);
+  clearTimeout(_warnTimer);
+  try{localStorage.removeItem('ccop_session');}catch(e){}
+  showSC('login');
+}
 function hasPerm(p){if(!CU)return false;if(CU.role==='admin')return true;return(CU.perms||[]).includes(p);}
 
 // ══════════════════════════════════════════════════
@@ -1693,8 +1733,21 @@ function toast(msg,type='s'){
 // ══════════════════════════════════════════════════
 window.addEventListener('load',()=>{
   loadLocal();
-  if(location.search.includes('form=1'))showSC('form');
-  // Show firebase notice if not configured
+  if(location.search.includes('form=1')){showSC('form');return;}
+
+  // Restore login session if still valid (expires after 8 hours)
+  try{
+    const sess=localStorage.getItem('ccop_session');
+    if(sess){
+      const{email,ts}=JSON.parse(sess);
+      if(Date.now()-ts < 8*60*60*1000){
+        const u=DB.users.find(x=>x.email===email);
+        if(u){CU=u;applyLoginUI(u);return;}
+      }else{localStorage.removeItem('ccop_session');}
+    }
+  }catch(e){}
+
+  showSC('login');
   if(!window.fbReady)setTimeout(()=>{document.getElementById('fb-notice').style.display='block';},2000);
 });
 </script>
